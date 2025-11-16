@@ -57,7 +57,7 @@ DOWNLOAD_CHUNK_SIZE = 8192
 DOWNLOAD_TIMEOUT = 60
 
 INSTALLER_VERSION = "1.0"
-INSTALLER_VERSION_URL = "https://onejanik.xyz/sws_usb_installer/version_terminal.json"
+INSTALLER_VERSION_URL = "https://onejanik.xyz/sws2_usb_installer/version_terminal.json"
 
 DEFAULT_LANGUAGE = "de"
 
