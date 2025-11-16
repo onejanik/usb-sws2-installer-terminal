@@ -57,7 +57,7 @@ jobs:
         if ($signtoolPath) {
           Write-Host "Found signtool at: $($signtoolPath.FullName)"
           # Sign the executable
-          & $signtoolPath.FullName sign /f $certPath /p "yaoyIaCc9e4D4M18zu29oCbYEi2eFIa1OoTNokxC0gkAfmO0OT" /tr http://timestamp.sectigo.com /td SHA256 /fd SHA256 "dist\SubwaySim2_USB_Installer.exe"
+          & $signtoolPath.FullName sign /f $certPath /p "yaoyIaCc9e4D4M18zu29oCbYEi2eFIa1OoTNokxC0gkAfmO0OT" /tr http://timestamp.sectigo.com /td SHA256 /fd SHA256 "dist\SubwaySim2_USB_Installer_Terminal.exe"
           Write-Host "Windows executable signed with self-signed certificate"
         } else {
           Write-Host "signtool.exe not found, skipping signing"
