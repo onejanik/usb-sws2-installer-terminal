@@ -28,15 +28,16 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    
-    - name: Build with Nuitka
+    # Nuitka Build mit korrekter Syntax
+    - name: Build with Nuitka (Windows)
+      if: matrix.os == 'windows-latest'
       uses: Nuitka/Nuitka-Action@main
       with:
         nuitka-version: main
         script-name: main.py
-        onefile: true
-        standalone: true
-        output-file: SubwaySim2_USB_Installer_Terminal
+        mode: standalone
+        output-dir: build
+        output-file: SubwaySim2_USB_Installer_Terminal.exe
         enable-console: true
         windows-icon-from-ico: favicon.ico
         company-name: "FärberIT Solutions"
@@ -45,20 +46,46 @@ jobs:
         product-version: "1.0.0"
         file-description: "U-Bahn Berlin Mod Installer"
         copyright: "© 2025 FärberIT Solutions"
+        assume-yes-for-downloads: true
     
+    - name: Build with Nuitka (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      uses: Nuitka/Nuitka-Action@main
+      with:
+        nuitka-version: main
+        script-name: main.py
+        mode: standalone
+        output-dir: build
+        output-file: SubwaySim2_USB_Installer_Terminal.bin
+        enable-console: true
+        assume-yes-for-downloads: true
     
+    - name: Build with Nuitka (macOS)
+      if: matrix.os == 'macos-latest'
+      uses: Nuitka/Nuitka-Action@main
+      with:
+        nuitka-version: main
+        script-name: main.py
+        mode: standalone
+        output-dir: build
+        output-file: SubwaySim2_USB_Installer_Terminal.bin
+        enable-console: true
+        macos-app-icon: favicon.ico
+        assume-yes-for-downloads: true
+    
+    # Windows Code Signing
     - name: Sign Windows executable
       if: matrix.os == 'windows-latest'
       env:
         CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
         CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
       run: |
-        
+        # Dekodiere Zertifikat
         $certBytes = [Convert]::FromBase64String($env:CERTIFICATE_BASE64)
         $certPath = "signing-cert.pfx"
         [IO.File]::WriteAllBytes($certPath, $certBytes)
         
-        
+        # Finde signtool.exe
         $signtoolPath = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\*\bin\*\x64\signtool.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
         
         if (-not $signtoolPath) {
@@ -68,7 +95,17 @@ jobs:
         
         Write-Host "Signiere Executable..."
         
-        # Signiere mit Timestamp (wichtig für Gültigkeit!)
+        # Finde die erstellte EXE (Nuitka erstellt ein dist-Verzeichnis)
+        $exePath = Get-ChildItem -Path "build" -Filter "*.exe" -Recurse | Select-Object -First 1
+        
+        if (-not $exePath) {
+          Write-Error "Keine EXE gefunden!"
+          exit 1
+        }
+        
+        Write-Host "Gefunden: $($exePath.FullName)"
+        
+        # Signiere mit Timestamp
         & $signtoolPath.FullName sign `
           /f $certPath `
           /p $env:CERTIFICATE_PASSWORD `
@@ -77,7 +114,7 @@ jobs:
           /fd SHA256 `
           /d "SubwaySim2 USB Installer" `
           /du "https://github.com/${{ github.repository }}" `
-          "build\SubwaySim2_USB_Installer_Terminal.exe"
+          $exePath.FullName
         
         if ($LASTEXITCODE -ne 0) {
           Write-Error "Signierung fehlgeschlagen!"
@@ -86,31 +123,59 @@ jobs:
         
         Write-Host "✓ Signierung erfolgreich"
         
-        
-        & $signtoolPath.FullName verify /pa /v "build\SubwaySim2_USB_Installer_Terminal.exe"
+        # Verifiziere Signatur
+        & $signtoolPath.FullName verify /pa /v $exePath.FullName
         
         # Cleanup
         Remove-Item $certPath -Force
       shell: pwsh
     
-    
+    # Linux: Executable-Bit setzen
     - name: Prepare Linux executable
       if: matrix.os == 'ubuntu-latest'
       run: |
-        chmod +x build/SubwaySim2_USB_Installer_Terminal.bin
+        find build -type f -name "*.bin" -exec chmod +x {} \;
         ls -lh build/
     
-    
+    # macOS: Executable-Bit setzen
     - name: Prepare macOS executable
       if: matrix.os == 'macos-latest'
       run: |
-        chmod +x build/SubwaySim2_USB_Installer_Terminal.bin
+        find build -type f -name "*.bin" -exec chmod +x {} \;
         ls -lh build/
     
-   
-    - name: Upload artifacts
+    # Artifacts hochladen
+    - name: Upload Windows artifacts
+      if: matrix.os == 'windows-latest'
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.os }}-executable
-        path: build/*
+        name: windows-executable
+        path: build/*.exe
         retention-days: 90
+    
+    - name: Upload Linux artifacts
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-executable
+        path: build/*.bin
+        retention-days: 90
+    
+    - name: Upload macOS artifacts
+      if: matrix.os == 'macos-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-executable
+        path: build/*.bin
+        retention-days: 90
+    
+    # Release erstellen (bei git tags)
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: build/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
