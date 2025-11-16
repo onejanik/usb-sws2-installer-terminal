@@ -1,0 +1,143 @@
+name: Build Executables
+on:
+  push:
+    branches:
+      - main
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['windows-latest', 'ubuntu-latest', 'macos-latest']
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    
+    - name: Install system dependencies (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-tk python3-dev
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Build executable (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        pyinstaller main.py --icon=favicon.ico --console --onefile --name "SubwaySim2_USB_Installer_Terminal"
+    
+    - name: Build executable (Unix - macOS/Linux)
+      if: matrix.os != 'windows-latest'
+      run: |
+        pyinstaller main.py --icon=favicon.ico --console --onefile --name "SubwaySim2_USB_Installer_Terminal"
+    
+    
+    - name: Generate and sign Windows executable
+      if: matrix.os == 'windows-latest'
+      run: |
+        
+        $cert = New-SelfSignedCertificate -DnsName "SubwaySim2-USB-Installer" -Type CodeSigning -CertStoreLocation "Cert:\CurrentUser\My" -Subject "CN=SubwaySim2 USB Installer"
+        $password = ConvertTo-SecureString -String "yaoyIaCc9e4D4M18zu29oCbYEi2eFIa1OoTNokxC0gkAfmO0OT" -Force -AsPlainText
+        $certPath = "selfsigned.pfx"
+        Export-PfxCertificate -Cert $cert -FilePath $certPath -Password $password
+        
+        
+        $signtoolPath = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\*\bin\*\x64\signtool.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        
+        if ($signtoolPath) {
+          Write-Host "Found signtool at: $($signtoolPath.FullName)"
+          # Sign the executable
+          & $signtoolPath.FullName sign /f $certPath /p "yaoyIaCc9e4D4M18zu29oCbYEi2eFIa1OoTNokxC0gkAfmO0OT" /tr http://timestamp.sectigo.com /td SHA256 /fd SHA256 "dist\SubwaySim2_USB_Installer.exe"
+          Write-Host "Windows executable signed with self-signed certificate"
+        } else {
+          Write-Host "signtool.exe not found, skipping signing"
+        }
+        
+        
+        Remove-Item $certPath -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -Path "Cert:\CurrentUser\My" | Where-Object { $_.Subject -like "*SubwaySim2*" } | Remove-Item -Force -ErrorAction SilentlyContinue
+      shell: pwsh
+    
+    
+    - name: Generate and sign macOS executable
+      if: matrix.os == 'macos-latest'
+      run: |
+        # Create a self-signed certificate for code signing
+        security create-keychain -p actions build.keychain
+        security default-keychain -s build.keychain
+        security unlock-keychain -p actions build.keychain
+        
+        cat > cert.conf << EOF
+        [req]
+        distinguished_name = req_distinguished_name
+        x509_extensions = v3_req
+        prompt = no
+
+        [req_distinguished_name]
+        CN = SubwaySim2 USB Installer
+        O = SubwaySim2 Development
+        C = US
+
+        [v3_req]
+        keyUsage = keyEncipherment, dataEncipherment, digitalSignature
+        extendedKeyUsage = codeSigning
+        EOF
+        
+        openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes -config cert.conf
+        openssl pkcs12 -export -out certificate.p12 -inkey key.pem -in cert.pem -passout pass:actions
+        
+        security import certificate.p12 -k build.keychain -P actions -T /usr/bin/codesign
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
+        
+        
+        codesign --force --sign "SubwaySim2 USB Installer" --timestamp --options runtime "dist/SubwaySim2_USB_Installer" 2>/dev/null || echo "Code signing failed (expected for self-signed cert) - executable will work but show security warnings"
+        
+        
+        rm -f cert.conf key.pem cert.pem certificate.p12
+        security delete-keychain build.keychain 2>/dev/null || true
+      shell: bash
+    
+    
+    
+    - name: Create Artifact (Windows)
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-executables
+        path: dist/
+        retention-days: 30
+    
+    - name: Create Artifact (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-executables
+        path: dist/
+        retention-days: 30
+    
+    - name: Create Artifact (macOS)
+      if: matrix.os == 'macos-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-executables
+        path: dist/
+        retention-days: 30
+    
+    - name: List final build artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      run: Get-ChildItem -Path "./dist/" -Force
+      shell: pwsh
+    
+    - name: List final build artifacts (Unix)
+      if: matrix.os != 'windows-latest'
+      run: ls -la ./dist/
