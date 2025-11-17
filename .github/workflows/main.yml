@@ -28,14 +28,14 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    # Nuitka Build mit Performance-Optimierungen
-    - name: Build with Nuitka (Windows)
+    # Nuitka Build - ONEFILE MODE
+    - name: Build with Nuitka (Windows - Onefile)
       if: matrix.os == 'windows-latest'
       uses: Nuitka/Nuitka-Action@main
       with:
         nuitka-version: main
         script-name: main.py
-        mode: standalone
+        mode: app  # ← Onefile Mode!
         output-dir: build
         output-file: SubwaySim2_USB_Installer_Terminal.exe
         windows-console-mode: force
@@ -47,49 +47,42 @@ jobs:
         file-description: "U-Bahn Berlin Mod Installer"
         copyright: "© 2025 FärberIT Solutions"
         assume-yes-for-downloads: true
-        # Performance-Optimierungen
-        lto: no  # Deaktiviert Link-Time-Optimization (schneller)
-        jobs: 2  # Parallel kompilieren
+        # Onefile-Optimierungen
+        onefile-tempdir-spec: "{CACHE_DIR}/{COMPANY}/{PRODUCT}/{VERSION}"
     
-    - name: Build with Nuitka (Linux)
+    - name: Build with Nuitka (Linux - Onefile)
       if: matrix.os == 'ubuntu-latest'
       uses: Nuitka/Nuitka-Action@main
       with:
         nuitka-version: main
         script-name: main.py
-        mode: standalone
+        mode: app
         output-dir: build
         output-file: SubwaySim2_USB_Installer_Terminal.bin
         assume-yes-for-downloads: true
-        lto: no
-        jobs: 2
     
-    - name: Build with Nuitka (macOS)
+    - name: Build with Nuitka (macOS - Onefile)
       if: matrix.os == 'macos-latest'
       uses: Nuitka/Nuitka-Action@main
       with:
         nuitka-version: main
         script-name: main.py
-        mode: standalone
+        mode: app
         output-dir: build
         output-file: SubwaySim2_USB_Installer_Terminal.bin
         assume-yes-for-downloads: true
-        lto: no
-        jobs: 2
     
-    # Windows Code Signing (ohne Verifikation)
+    # Windows Code Signing
     - name: Sign Windows executable
       if: matrix.os == 'windows-latest'
       env:
         CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
         CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
       run: |
-        # Dekodiere Zertifikat
         $certBytes = [Convert]::FromBase64String($env:CERTIFICATE_BASE64)
         $certPath = "signing-cert.pfx"
         [IO.File]::WriteAllBytes($certPath, $certBytes)
         
-        # Finde signtool.exe
         $signtoolPath = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\*\bin\*\x64\signtool.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
         
         if (-not $signtoolPath) {
@@ -97,17 +90,17 @@ jobs:
           exit 1
         }
         
-        # Finde die EXE
-        $exePath = Get-ChildItem -Path "build/main.dist" -Filter "*.exe" -Recurse | Select-Object -First 1
+        # Im onefile-Mode ist die EXE direkt im build-Ordner
+        $exePath = Get-ChildItem -Path "build" -Filter "*.exe" | Select-Object -First 1
         
         if (-not $exePath) {
           Write-Error "Keine EXE gefunden!"
+          Get-ChildItem -Path "build" -Recurse
           exit 1
         }
         
         Write-Host "Signiere: $($exePath.FullName)"
         
-        # Signiere mit Timestamp
         & $signtoolPath.FullName sign `
           /f $certPath `
           /p $env:CERTIFICATE_PASSWORD `
@@ -123,83 +116,80 @@ jobs:
           exit 1
         }
         
-        Write-Host "✓ Signierung erfolgreich"
-        Write-Host ""
-        Write-Host "Hinweis: Das Zertifikat ist selbst-signiert und wird auf anderen"
-        Write-Host "Systemen als 'nicht vertrauenswürdig' angezeigt, bis Nutzer es"
-        Write-Host "manuell als vertrauenswürdig markieren."
-        
-        # Cleanup
+        Write-Host "✓ Executable signiert!"
         Remove-Item $certPath -Force
       shell: pwsh
     
-    # Linux: Executable-Bit setzen
+    # Executable-Bit setzen (Linux/macOS)
     - name: Prepare Linux executable
       if: matrix.os == 'ubuntu-latest'
       run: |
-        find build/main.dist -type f -name "*.bin" -exec chmod +x {} \;
-        ls -lh build/main.dist/
+        chmod +x build/*.bin
+        ls -lh build/
     
-    # macOS: Executable-Bit setzen
     - name: Prepare macOS executable
       if: matrix.os == 'macos-latest'
       run: |
-        find build/main.dist -type f -name "*.bin" -exec chmod +x {} \;
-        ls -lh build/main.dist/
+        chmod +x build/*.bin
+        ls -lh build/
     
-    # Artifacts hochladen
-    - name: Upload Windows artifacts
+    # Artifacts hochladen - nur die einzelne Datei!
+    - name: Upload Windows executable
       if: matrix.os == 'windows-latest'
       uses: actions/upload-artifact@v4
       with:
-        name: windows-executable
-        path: build/main.dist/
+        name: SubwaySim2_USB_Installer_Windows
+        path: build/*.exe
         retention-days: 90
     
-    - name: Upload Linux artifacts
+    - name: Upload Linux executable
       if: matrix.os == 'ubuntu-latest'
       uses: actions/upload-artifact@v4
       with:
-        name: linux-executable
-        path: build/main.dist/
+        name: SubwaySim2_USB_Installer_Linux
+        path: build/*.bin
         retention-days: 90
     
-    - name: Upload macOS artifacts
+    - name: Upload macOS executable
       if: matrix.os == 'macos-latest'
       uses: actions/upload-artifact@v4
       with:
-        name: macos-executable
-        path: build/main.dist/
+        name: SubwaySim2_USB_Installer_macOS
+        path: build/*.bin
         retention-days: 90
     
-    # Optional: ZIP für Release erstellen
-    - name: Create ZIP archive (Windows)
-      if: matrix.os == 'windows-latest' && startsWith(github.ref, 'refs/tags/v')
-      run: |
-        Compress-Archive -Path "build/main.dist/*" -DestinationPath "SubwaySim2_USB_Installer_Windows.zip"
-      shell: pwsh
-    
-    - name: Create ZIP archive (Linux)
-      if: matrix.os == 'ubuntu-latest' && startsWith(github.ref, 'refs/tags/v')
-      run: |
-        cd build/main.dist
-        zip -r ../../SubwaySim2_USB_Installer_Linux.zip .
-        cd ../..
-    
-    - name: Create ZIP archive (macOS)
-      if: matrix.os == 'macos-latest' && startsWith(github.ref, 'refs/tags/v')
-      run: |
-        cd build/main.dist
-        zip -r ../../SubwaySim2_USB_Installer_macOS.zip .
-        cd ../..
-    
-    # Release erstellen
+    # Release erstellen (bei git tags)
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v1
       with:
-        files: "*.zip"
+        files: build/*
         draft: false
         prerelease: false
+        body: |
+          ## Download
+          
+          **Windows:** `SubwaySim2_USB_Installer_Terminal.exe`
+          **Linux:** `SubwaySim2_USB_Installer_Terminal.bin`
+          **macOS:** `SubwaySim2_USB_Installer_Terminal.bin`
+          
+          ### Installation
+          
+          #### Windows
+          1. Datei herunterladen
+          2. Doppelklick zum Starten
+          3. Falls Windows SmartScreen warnt: "Weitere Informationen" → "Trotzdem ausführen"
+          
+          #### Linux
+          ```
+          chmod +x SubwaySim2_USB_Installer_Terminal.bin
+          ./SubwaySim2_USB_Installer_Terminal.bin
+          ```
+          
+          #### macOS
+          ```
+          chmod +x SubwaySim2_USB_Installer_Terminal.bin
+          ./SubwaySim2_USB_Installer_Terminal.bin
+          ```
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
