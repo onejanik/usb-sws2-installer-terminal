@@ -46,8 +46,8 @@ except ImportError:
     os.execl(sys.executable, sys.executable, *sys.argv)
 
 FILE_NAME = "UBahnSimBerlin_Gesamt.pak"
-DOWNLOAD_URL = "https://cloud.u7-trainz.de/s/fqiXTPcSCtWcLJL/download/UBahnSimBerlin_Gesamt.pak"
-MIRROR_URL = "https://www.trrdroid.net/download/UBahnSimBerlin_Gesamt.pak"
+DOWNLOAD_URL = "https://www.trrdroid.net/download/usbupdate8/UBahnSimBerlin_Gesamt.pak"
+MIRROR_URL = "https://www.trrdroid.net/download/usbupdate8/UBahnSimBerlin_Gesamt.pak"
 WEBSITE_URL = "https://www.u7-trainz.de/downloads"
 GAME_DIR_NAME = "SubwaySim 2"
 MODS_DIR_NAME = "Mods"
